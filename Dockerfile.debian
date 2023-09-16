@@ -1,0 +1,64 @@
+ARG PACKAGES="gcc neofetch"
+
+# PKG_CACHE defaults to the "pkg-cache-local" stage in this image.
+# Can be overridden to a custom image for reproducible builds.
+ARG PKG_CACHE=pkg-cache-local
+
+# The base image can be Ubuntu too.
+ARG BASE=debian:bookworm-20230904-slim
+
+FROM ${BASE} AS base
+
+FROM base AS pkg-cache-local-base
+ARG PACKAGES
+ENV DEBIAN_FRONTEND=noninteractive
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+  echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' >/etc/apt/apt.conf.d/keep-cache && \
+  apt-get update && \
+  apt-get install -y --download-only ${PACKAGES}
+
+FROM scratch AS pkg-cache-local
+COPY --from=pkg-cache-local-base /var/cache/apt /var/cache/apt
+COPY --from=pkg-cache-local-base /var/lib/apt /var/lib/apt
+
+# pkg-cache is the stage to collect package cache files.
+# This stage can be pushed for the sake of reproducible builds.
+FROM ${PKG_CACHE} AS pkg-cache
+
+FROM base
+ADD --chmod=0755 <<-"EOT" /usr/local/bin/verify-var-lib-apt-lists.sh
+#!/bin/bash
+set -eux -o pipefail
+for ir in /var/lib/apt/lists/*InRelease; do
+  verified=0
+  for keyring in /usr/share/keyrings/*.gpg; do
+    if gpgv --keyring "${keyring}" "${ir}"; then
+      verified=1
+      break
+    fi
+    done
+    if [ "${verified}" != "1" ]; then
+      echo >&2 "Failed to verify ${ir}"
+      exit 1
+    fi
+  echo "Verified: gpgv --keyring ${keyring} ${ir}"
+done
+EOT
+ENV DEBIAN_FRONTEND=noninteractive
+ARG PACKAGES
+RUN \
+  --mount=from=pkg-cache,source=/var/cache/apt,target=/var/cache/apt,rw \
+  --mount=from=pkg-cache,source=/var/lib/apt,target=/var/lib/apt,rw \
+  --network=none \
+  verify-var-lib-apt-lists.sh && \
+  apt-get install -y --no-download ${PACKAGES}
+
+# WARNING: the repository signatures (`/var/lib/apt/lists/*InRelease`)
+# are only verified on running `apt-get update`.
+# The signatures are just ignored on running `apt-get install --no-download`.
+#
+# As a workaround, the signatures are verified with the `verify-var-lib-apt-lists.sh`
+# script above, however, this script might not be as robust as `apt-get update`.
+#
+# For Debian and Ubuntu, consider using https://github.com/reproducible-containers/repro-sources-list.sh
+# instead.

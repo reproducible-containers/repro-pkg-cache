@@ -1,0 +1,28 @@
+ARG PACKAGES="gcc neofetch"
+
+# PKG_CACHE defaults to the "pkg-cache-local" stage in this image.
+# Can be overridden to a custom image for reproducible builds.
+ARG PKG_CACHE=pkg-cache-local
+
+ARG BASE=opensuse/leap:15.5@sha256:987224e4850af16eef9c89dee43c7bfbbe3b197f8abaf926aec8ad2043b5b577
+
+FROM ${BASE} AS base
+
+FROM base AS pkg-cache-local-base
+ARG PACKAGES
+RUN zypper install -y --download-only ${PACKAGES}
+
+FROM scratch AS pkg-cache-local
+COPY --from=pkg-cache-local-base /var/cache/zypp /var/cache/zypp
+
+# pkg-cache is the stage to collect package cache files.
+# This stage can be pushed for the sake of reproducible builds.
+FROM ${PKG_CACHE} AS pkg-cache
+
+FROM base
+ARG PACKAGES
+RUN \
+  --mount=from=pkg-cache,source=/var/cache/zypp,target=/var/cache/zypp,rw \
+  --network=none \
+  zypper --no-refresh install -y ${PACKAGES}
+# The package signatures are verified by zypper

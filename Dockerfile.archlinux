@@ -1,0 +1,46 @@
+ARG PACKAGES="gcc neofetch"
+
+# PKG_CACHE defaults to the "pkg-cache-local" stage in this image.
+# Can be overridden to a custom image for reproducible builds.
+ARG PKG_CACHE=pkg-cache-local
+
+ARG BASE=archlinux:base-20230910.0.177821
+
+FROM ${BASE} AS base
+
+FROM base AS pkg-cache-local-base
+ARG PACKAGES
+RUN pacman -S --noconfirm --refresh --downloadonly ${PACKAGES}
+
+FROM scratch AS pkg-cache-local
+COPY --from=pkg-cache-local-base /var/cache/pacman /var/cache/pacman
+COPY --from=pkg-cache-local-base /var/lib/pacman/sync /var/lib/pacman/sync
+
+# pkg-cache is the stage to collect package cache files.
+# This stage can be pushed for the sake of reproducible builds.
+FROM ${PKG_CACHE} AS pkg-cache
+
+FROM base
+ADD --chmod=0755 <<-"EOT" /usr/local/bin/verify-var-cache-pacman-pkg.sh
+#!/bin/bash
+set -eux -o pipefail
+for pkg in /var/cache/pacman/pkg/*.tar.zst; do
+  pacman-key --verify "${pkg}.sig"
+done
+EOT
+ARG PACKAGES
+RUN \
+  --mount=from=pkg-cache,source=/var/cache/pacman,target=/var/cache/pacman,rw \
+  --mount=from=pkg-cache,source=/var/lib/pacman/sync,target=/var/lib/pacman/sync,rw \
+  --network=none \
+  verify-var-cache-pacman-pkg.sh && \
+  pacman -S --noconfirm ${PACKAGES}
+# WARNING: the repository signatures (`/var/cache/pacman/pkg/*.sig`)
+# are only verified on running downloading packages.
+# The signatures are just ignored on installing the packages from the cache.
+#
+# As a workaround, the signatures are verified with the `verify-var-cache-pacman-pkg.sh`
+# script above, however, this script might not be as robust as `pacman -Sy`.
+#
+# For ArchLinux, consider using https://github.com/reproducible-containers/repro-sources-list.sh
+# instead.

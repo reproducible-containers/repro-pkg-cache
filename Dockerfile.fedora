@@ -1,0 +1,29 @@
+ARG PACKAGES="gcc neofetch"
+
+# PKG_CACHE defaults to the "pkg-cache-local" stage in this image.
+# Can be overridden to a custom image for reproducible builds.
+ARG PKG_CACHE=pkg-cache-local
+
+# The base image can be CentOS Stream, Rocky Linux, and AlmaLinux too.
+ARG BASE=fedora:38@sha256:6fc00f83a1b6526b1c6562e30f552d109ba8e269259c6742a26efab1b7aef59e
+
+FROM ${BASE} AS base
+
+FROM base AS pkg-cache-local-base
+ARG PACKAGES
+RUN dnf install -y --downloadonly ${PACKAGES}
+
+FROM scratch AS pkg-cache-local
+COPY --from=pkg-cache-local-base /var/cache/dnf /var/cache/dnf
+
+# pkg-cache is the stage to collect package cache files.
+# This stage can be pushed for the sake of reproducible builds.
+FROM ${PKG_CACHE} AS pkg-cache
+
+FROM base
+ARG PACKAGES
+RUN \
+  --mount=from=pkg-cache,source=/var/cache/dnf,target=/var/cache/dnf,rw \
+  --network=none \
+  dnf install -y --cacheonly ${PACKAGES}
+# The package signatures are verified by rpm

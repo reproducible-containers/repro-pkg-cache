@@ -1,0 +1,38 @@
+---
+name: Build
+on:
+  push:
+    branches:
+    - master
+    - 'release/**'
+  pull_request:
+jobs:
+  example:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - "Dockerfile.archlinux"
+          - "Dockerfile.alpine"
+          - "Dockerfile.debian"
+          - "Dockerfile.fedora"
+          - "Dockerfile.opensuse"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v2
+      - uses: docker/metadata-action@v4
+        id: meta
+        with:
+          images: example
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          file: ${{ matrix.dockerfile }}
+          push: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

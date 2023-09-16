@@ -1,0 +1,30 @@
+ARG PACKAGES="gcc neofetch"
+
+# PKG_CACHE defaults to the "pkg-cache-local" stage in this image.
+# Can be overridden to a custom image for reproducible builds.
+ARG PKG_CACHE=pkg-cache-local
+
+ARG BASE=alpine:3.18.3@sha256:7144f7bab3d4c2648d7e59409f15ec52a18006a128c733fcff20d3a4a54ba44a
+
+FROM ${BASE} AS base
+
+FROM base AS pkg-cache-local-base
+ARG PACKAGES
+RUN mkdir -p /etc/apk/cache && \
+  apk update && \
+  apk cache download --available --add-dependencies ${PACKAGES}
+
+FROM scratch AS pkg-cache-local
+COPY --from=pkg-cache-local-base /etc/apk/cache /etc/apk/cache
+
+# pkg-cache is the stage to collect package cache files.
+# This stage can be pushed for the sake of reproducible builds.
+FROM ${PKG_CACHE} AS pkg-cache
+
+FROM base
+ARG PACKAGES
+RUN \
+  --mount=from=pkg-cache,source=/etc/apk/cache,target=/etc/apk/cache,rw \
+  --network=none \
+  apk add --no-network ${PACKAGES}
+# The package signatures are verified by apk
