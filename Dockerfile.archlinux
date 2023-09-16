@@ -25,6 +25,8 @@ ADD --chmod=0755 <<-"EOT" /usr/local/bin/verify-var-cache-pacman-pkg.sh
 #!/bin/bash
 set -eux -o pipefail
 for pkg in /var/cache/pacman/pkg/*.tar.zst; do
+  # Under the hood, `pacman-key` calls the following command:
+  # gpg --homedir /etc/pacman.d/gnupg/ --no-permission-warning --status-fd 1 --verify ${pkg}.sig ${pkg}
   pacman-key --verify "${pkg}.sig"
 done
 EOT
@@ -35,12 +37,14 @@ RUN \
   --network=none \
   verify-var-cache-pacman-pkg.sh && \
   pacman -S --noconfirm ${PACKAGES}
-# WARNING: the repository signatures (`/var/cache/pacman/pkg/*.sig`)
-# are only verified on running downloading packages.
-# The signatures are just ignored on installing the packages from the cache.
+# WARNING: while pacman verifies the package signatures using `/var/lib/pacman/sync/*.db`,
+# the signature files in `/var/cache/pacman/pkg/*.sig` are apparently ignored
+# at the time of writing this (Sep 2023).
 #
-# As a workaround, the signatures are verified with the `verify-var-cache-pacman-pkg.sh`
-# script above, however, this script might not be as robust as `pacman -Sy`.
+# This does not seem to cause a critical problem currently, though,
+# `/var/cache/pacman/pkg/*.sig` are verified with the `verify-var-cache-pacman-pkg.sh` script
+# above to avoid potential security issues with a future version of pacman.
+# However, this script might not be robust.
 #
 # For ArchLinux, consider using https://github.com/reproducible-containers/repro-sources-list.sh
 # instead.
