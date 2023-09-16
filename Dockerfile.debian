@@ -36,11 +36,11 @@ for ir in /var/lib/apt/lists/*InRelease; do
       verified=1
       break
     fi
-    done
-    if [ "${verified}" != "1" ]; then
-      echo >&2 "Failed to verify ${ir}"
-      exit 1
-    fi
+  done
+  if [ "${verified}" != "1" ]; then
+    echo >&2 "Failed to verify ${ir}"
+    exit 1
+  fi
   echo "Verified: gpgv --keyring ${keyring} ${ir}"
 done
 EOT
